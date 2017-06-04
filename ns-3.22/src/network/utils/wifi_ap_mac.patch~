@@ -1,0 +1,12 @@
+139,146c139
+< 
+< #ifdef TAP_WIFI_AP
+<   if(id == 0 || id == 1)
+< 	  id++;
+< #else
+<   id++;
+< #endif
+< 
+---
+>   id++
+

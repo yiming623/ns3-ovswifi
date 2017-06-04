@@ -1,0 +1,190 @@
+/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation;
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+#include "ns3/core-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/network-module.h"
+#include "ns3/applications-module.h"
+#include "ns3/wifi-module.h"
+#include "ns3/mobility-module.h"
+#include "ns3/csma-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/tap-bridge-module.h"
+
+// Default Network Topology
+//
+//   Wifi 10.1.3.0
+//                 AP
+//  *    *    *    *
+//  |    |    |    |    10.1.1.0
+// n5   n6   n7   n0 -------------- n1   n2   n3   n4
+//                   point-to-point  |    |    |    |
+//                                   ================
+//                                     LAN 10.1.2.0
+
+using namespace ns3;
+
+NS_LOG_COMPONENT_DEFINE("ThirdScriptExample");
+
+static void PrintPositions(std::string s, NodeContainer sta) {
+	std::cout << "t = " << Simulator::Now().GetMicroSeconds() / 1000000.0 << " "
+			<< s << std::endl;
+//	for (uint32_t i = 0; i < staNodes.GetN(); i++) {
+	Ptr<MobilityModel> mob = sta.Get(0)->GetObject<MobilityModel>();
+	Vector pos = mob->GetPosition();
+	std::cout << ":" << "idd = " << sta.Get(0)->GetId() << "  " << pos.x << ", "
+			<< pos.y << std::endl;
+//	}
+	Simulator::Schedule(Seconds(1), (&PrintPositions), s, sta);
+}
+
+static void SetPositionVelocity(Ptr<Node> node, Vector position,
+		Vector velocity) {
+	Ptr<ConstantVelocityMobilityModel> mobility = node->GetObject<
+			ConstantVelocityMobilityModel>();
+	mobility->SetPosition(position);
+	mobility->SetVelocity(velocity);
+}
+
+void CourseChanged(std::string context, Ptr<const MobilityModel> model) {
+	Vector position = model->GetPosition();
+	NS_LOG_UNCOND(
+			"At time " << Simulator::Now ().GetSeconds () << " " << context << " x = " << position.x << ", y = " << position.y);
+}
+
+int main(int argc, char *argv[]) {
+	bool verbose = true;
+	uint32_t nAp = 4;
+	uint32_t nWifi = 1;
+
+	GlobalValue::Bind("SimulatorImplementationType",
+				StringValue("ns3::RealtimeSimulatorImpl"));
+
+	CommandLine cmd;
+	cmd.AddValue("nCsma", "Number of \"extra\" CSMA nodes/devices", nAp);
+	cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
+	cmd.AddValue("verbose", "Tell echo applications to log if true", verbose);
+	cmd.Parse(argc, argv);
+
+	if (nWifi > 18) {
+		std::cout << "Number of wifi nodes " << nWifi
+				<< " specified exceeds the mobility bounding box" << std::endl;
+		exit(1);
+	}
+
+	if (verbose) {
+		LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
+		LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+	}
+
+	NodeContainer apNodes;
+	apNodes.Create(nAp);
+
+	NodeContainer wifiStaNodes;
+	wifiStaNodes.Create(nWifi);
+
+	YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
+	YansWifiPhyHelper phy = YansWifiPhyHelper::Default();
+	phy.SetChannel(channel.Create());
+
+	WifiHelper wifi = WifiHelper::Default();
+	wifi.SetRemoteStationManager("ns3::ArfWifiManager");
+
+	NqosWifiMacHelper mac = NqosWifiMacHelper::Default();
+
+	Ssid ssid = Ssid("ns-3-ssid");
+	mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssid), "ActiveProbing",
+			BooleanValue(false));
+	NetDeviceContainer staDevices;
+	staDevices = wifi.Install(phy, mac, wifiStaNodes);
+
+	mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssid));
+	NetDeviceContainer apDevices;
+	apDevices = wifi.Install(phy, mac, apNodes);
+
+	InternetStackHelper stack;
+	stack.Install(apNodes);
+	stack.Install(wifiStaNodes);
+
+	Ipv4AddressHelper ipv4AP;
+	ipv4AP.SetBase ("10.1.1.0", "255.255.255.0");
+	Ipv4InterfaceContainer interfacesLeft = ipv4AP.Assign (apDevices);
+	Ipv4InterfaceContainer interfacesRight = ipv4AP.Assign (staDevices);
+
+	TapBridgeHelper tapBridge;
+	tapBridge.SetAttribute("Mode", StringValue("ConfigureLocal"));
+	tapBridge.SetAttribute("DeviceName", StringValue("aptap"));
+	tapBridge.SetAttribute("MacAddress", Mac48AddressValue ("00:00:00:00:00:02"));//actually not working
+	tapBridge.Install(apNodes.Get(0), apDevices.Get(0));
+	tapBridge.SetAttribute("DeviceName", StringValue("aptap1"));
+	tapBridge.SetAttribute("MacAddress", Mac48AddressValue ("00:00:00:00:00:02"));
+	tapBridge.Install(apNodes.Get(1), apDevices.Get(1));
+	tapBridge.SetAttribute("DeviceName", StringValue("aptap2"));
+	tapBridge.SetAttribute("MacAddress", Mac48AddressValue ("00:00:00:00:00:02"));
+	tapBridge.Install(apNodes.Get(2), apDevices.Get(2));
+	tapBridge.SetAttribute("DeviceName", StringValue("aptap3"));
+	tapBridge.SetAttribute("MacAddress", Mac48AddressValue ("00:00:00:00:00:02"));
+	tapBridge.Install(apNodes.Get(3), apDevices.Get(3));
+	tapBridge.SetAttribute("DeviceName", StringValue("statap"));
+	tapBridge.SetAttribute("MacAddress", Mac48AddressValue ("00:00:00:00:00:01"));
+	tapBridge.Install(wifiStaNodes.Get(0), staDevices.Get(0));
+
+	MobilityHelper mobility;
+
+	Ptr<ListPositionAllocator> positionAlloc = CreateObject<
+			ListPositionAllocator>();
+	positionAlloc->Add(Vector(0.0, 0.0, 0.0));
+	positionAlloc->Add(Vector(225.0, 0.0, 0.0));
+	positionAlloc->Add(Vector(450.0, 0.0, 0.0));
+	positionAlloc->Add(Vector(675.0, 0.0, 0.0));
+	positionAlloc->Add(Vector(900.0, 0.0, 0.0));
+	positionAlloc->Add(Vector(0.0, 0.0, 0.0));
+	mobility.SetPositionAllocator(positionAlloc);
+
+	//AP nodes has constant position
+	mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+	mobility.Install(apNodes.Get(0));
+	mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+	mobility.Install(apNodes.Get(1));
+	mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+	mobility.Install(apNodes.Get(2));
+	mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+	mobility.Install(apNodes.Get(3));
+
+	//Mobile nodes has constant velocity
+	mobility.SetMobilityModel("ns3::ConstantVelocityMobilityModel");
+	mobility.Install(wifiStaNodes.Get(0));
+
+//	UdpEchoServerHelper echoServer(9);
+//	Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+//	Simulator::Stop(Seconds(1000.0));
+
+	phy.EnablePcapAll("third");
+	std::ostringstream ossta;
+	ossta << "/NodeList/" << wifiStaNodes.Get(0)->GetId()
+			<< "/$ns3::MobilityModel/CourseChange";
+	Config::Connect(ossta.str(), MakeCallback(&CourseChanged));
+
+	//print position movement in mobility model
+	SetPositionVelocity(wifiStaNodes.Get(0), Vector(0.0, 0.0, 0.0),
+				(Vector(2.0, 0.0, 0.0)));
+	Simulator::Schedule(Seconds(0), (&PrintPositions), "ap0", wifiStaNodes.Get(0));
+
+	Simulator::Stop(Seconds(6000.));
+	Simulator::Run();
+	Simulator::Destroy();
+	return 0;
+}

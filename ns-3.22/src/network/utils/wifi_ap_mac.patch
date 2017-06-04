@@ -1,0 +1,13 @@
+/home/flowvisor/OpenNet/ns-allinone-3.22/ns-3.22/src/network/utils/mac48_address.cc
+139,146c139
+< 
+< #ifdef TAP_WIFI_AP
+<   if(id == 0 || id == 1)
+< 	  id++;
+< #else
+<   id++;
+< #endif
+< 
+---
+>   id++
+
